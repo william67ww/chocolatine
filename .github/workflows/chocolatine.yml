@@ -1,0 +1,101 @@
+name: Chocolatine
+run-name: ${{github.actor}} choco's check
+
+on:
+  push:
+    branches-ignore:
+      - "ga-ignore-*"
+  pull_request:
+    branches-ignore:
+      - "ga-ignore-*"
+
+env:
+  MIRROR_URL: "git@github.com:EpitechPGEPromo2029/B-DOP-200-STG-2-1-chocolatine-william.wagner.git"
+
+jobs:
+  check_coding_style:
+    runs-on: ubuntu-latest
+    container: ghcr.io/epitech/coding-style-checker:latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run coding-style checker
+        run: check.sh . /tmp
+
+      - name: Debug coding style logs
+        run: |
+          if [ -f /tmp/coding-style-reports.log ]; then
+            echo "===== Coding Style Report ====="
+            cat /tmp/coding-style-reports.log
+            echo "=============================="
+          else
+            echo "No coding style report found."
+          fi
+
+      - name: Display coding style errors
+        run: |
+          if [ -s /tmp/coding-style-reports.log ]; then
+            while IFS= read -r line; do
+              file=$(echo "$line" | cut -d':' -f1)
+              line_number=$(echo "$line" | cut -d':' -f2)
+              error_message=$(echo "$line" | cut -d':' -f3-)
+              echo "::error title=Coding Style Error,file=$file,line=$line_number::$error_message"
+            done < /tmp/coding-style-reports.log
+            exit 1
+          else
+            echo "No coding style errors detected."
+          fi
+
+  check_program_compilation:
+    runs-on: ubuntu-latest
+    container: epitechcontent/epitest-docker:latest
+    needs: check_coding_style
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compile project
+        run: make
+
+      - name: Clean project
+        run: make clean
+
+      - name: Check executables
+        run: |
+          for file in ${{ env.EXECUTABLES }}; do
+            if [ ! -x "$file" ]; then
+              echo "::error title=Missing Executable::File $file does not exist or is not executable"
+              exit 1
+            fi
+          done
+
+  run_tests:
+    runs-on: ubuntu-latest
+    container: epitechcontent/epitest-docker:latest
+    needs: check_program_compilation
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run tests
+        run: make tests_run &&
+          echo ${{ secrets.GIT_SSH_PRIVATE_KEY }}
+
+  push_to_mirror:
+    runs-on: ubuntu-latest
+    needs: run_tests
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+  
+      - name: Mirror repository
+        uses: pixta-dev/repository-mirroring-action@v1
+        with:
+          target_repo_url: ${{ env.MIRROR_URL }}
+          ssh_private_key: ${{ secrets.GIT_SSH_PRIVATE_KEY }}
+
+
